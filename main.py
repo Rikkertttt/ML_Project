@@ -4,9 +4,16 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 def main():
+
+    epochs = 4
+    lr = 0.0001
+    batch_size = 512
 
     # Load data from .npy files
     HWW_Data = np.load("Data/reco-gen_hww_rec.npy")
@@ -23,12 +30,52 @@ def main():
     X_ttbar = build_features(ttbar_lep1, ttbar_lep2, ttbar_jet1, ttbar_jet2, ttbar_MET)
     X_wwjj  = build_features(wwjj_lep1,  wwjj_lep2,  wwjj_jet1,  wwjj_jet2,  wwjj_MET)
 
-    # Concatenate and create labels
-    X = np.concatenate([X_hww, X_ttbar, X_wwjj], axis=0)
-    Y = np.concatenate([np.ones(len(X_hww)), np.zeros(len(X_ttbar)), np.zeros(len(X_wwjj))], axis=0)
+
+    # Split ttbar and wwjj into two non-overlapping halves
+    ttbar_data, ttbar_bg = train_test_split(X_ttbar, test_size=0.5, random_state=33)
+    wwjj_data,  wwjj_bg  = train_test_split(X_wwjj,  test_size=0.5, random_state=33)
+
+    X_data = np.concatenate([X_hww, ttbar_data, wwjj_data], axis=0)
+    X_bg   = np.concatenate([ttbar_bg, wwjj_bg], axis=0)
+
+    # Combine signal and background data, and create labels
+    X_label1 = np.concatenate([X_data, X_bg], axis=0)
+    Y_label1 = np.ones(len(X_label1))
+
+    X_label0 = np.copy(X_data)
+    Y_label0 = np.zeros(len(X_label0))
+
+    X = np.concatenate([X_label1, X_label0], axis=0)
+    Y = np.concatenate([Y_label1, Y_label0], axis=0)
+
+    # Target ratio
+    ratio = {'hww': 1, 'ttbar': 7, 'wwjj': 2}
+
+    # positive weights for data
+    w_hww   = ratio['hww']   / len(X_hww)
+    w_ttbar_d = ratio['ttbar'] / len(ttbar_data)
+    w_wwjj_d  = ratio['wwjj']  / len(wwjj_data)
+    # negative weights for background
+    w_ttbar_bg = ratio['ttbar'] / len(ttbar_bg) * -1
+    w_wwjj_bg  = ratio['wwjj']  / len(wwjj_bg) * -1
+
+    Weights = np.concatenate([
+        # Label 1: X_data (positive weights)
+        np.full(len(X_hww),      w_hww),
+        np.full(len(ttbar_data), w_ttbar_d),
+        np.full(len(wwjj_data),  w_wwjj_d),
+        # Label 1: X_bg (negative weights)
+        np.full(len(ttbar_bg),   w_ttbar_bg),
+        np.full(len(wwjj_bg),    w_wwjj_bg),
+        # Label 0: X_data copy (positive weights)
+        np.full(len(X_hww),      w_hww),
+        np.full(len(ttbar_data), w_ttbar_d),
+        np.full(len(wwjj_data),  w_wwjj_d),
+    ], axis=0)
+
 
     # Split into training and validation sets
-    X_train, X_val, Y_train, Y_val = train_test_split(X, Y, test_size=0.2, random_state=42)
+    X_train, X_val, Y_train, Y_val, W_train, W_val = train_test_split(X, Y, Weights, test_size=0.2, random_state=33)
 
     # Scale features
     scaler = StandardScaler()
@@ -36,21 +83,27 @@ def main():
     X_val = scaler.transform(X_val)
 
     # Convert to PyTorch tensors and create DataLoaders
-    train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32), torch.tensor(Y_train, dtype=torch.float32))
-    val_dataset = TensorDataset(torch.tensor(X_val, dtype=torch.float32), torch.tensor(Y_val, dtype=torch.float32))
-    train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=256, shuffle=False)
+    train_dataset = TensorDataset(
+        torch.tensor(X_train, dtype=torch.float32), 
+        torch.tensor(Y_train, dtype=torch.float32), 
+        torch.tensor(W_train, dtype=torch.float32))
+    val_dataset = TensorDataset(
+        torch.tensor(X_val, dtype=torch.float32), 
+        torch.tensor(Y_val, dtype=torch.float32), 
+        torch.tensor(W_val, dtype=torch.float32))
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # Train the model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}", flush=True)
     model = Red_Sea3(input_len=X_train.shape[1]).to(device)
-    criterion = torch.nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = torch.nn.BCEWithLogitsLoss(reduction='none')
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     
-    train_losses, val_losses, val_aucs, (fpr, tpr, thresholds) = train_model(
-    model, train_loader, val_loader, criterion, optimizer, device, num_epochs=20
+    train_losses, val_losses = train_model(
+    model, train_loader, val_loader, criterion, optimizer, device, num_epochs=epochs
     )
 
     # Loss plot
@@ -63,25 +116,38 @@ def main():
     plt.legend()
     plt.savefig('loss_plot_1.png')
 
-    # AUC over epochs
-    plt.figure()
-    plt.plot(val_aucs)
-    plt.xlabel('Epoch')
-    plt.ylabel('AUC')
-    plt.title('Validation AUC over Epochs')
-    plt.savefig('auc_plot_1.png')
 
-    # ROC curve (final epoch)
-    plt.figure()
-    plt.plot(fpr, tpr, label=f'AUC = {val_aucs[-1]:.4f}')
-    plt.plot([0, 1], [0, 1], 'k--', label='Random')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('ROC Curve (Final Epoch)')
-    plt.legend()
-    plt.savefig('roc_curve_1.png')
+    # Apply weights to data and compare to pure HWW
+    model.eval()
 
-    print(f"Final AUC: {val_aucs[-1]:.4f}", flush=True)
+    X_val_unscaled = scaler.inverse_transform(X_val)
+    X_val_data = X_val_unscaled[(Y_val == 1) & (W_val > 0)]  # Original features for data samples
+    X_val_data_scaled = X_val[(Y_val == 1) & (W_val > 0)]   # Scaled features for data samples
+
+    with torch.no_grad():
+        X_tensor = torch.tensor(X_val_data_scaled, dtype=torch.float32).to(device)
+        logits = model(X_tensor).squeeze()
+        C = torch.sigmoid(logits).cpu().numpy()
+        nu = C / (1 - C + 1e-8)
+
+    # Plot each feature reweighted vs pure HWW
+    for i, feature_name in enumerate(['lep1_pt', 'lep1_eta', 'lep1_phi',
+                                        'lep2_pt', 'lep2_eta', 'lep2_phi',
+                                        'jet1_pt', 'jet1_mass', 'jet1_eta', 'jet1_phi',
+                                        'jet2_pt', 'jet2_mass', 'jet2_eta', 'jet2_phi']):
+        plt.figure()
+        plt.hist(X_val_data[:, i], bins=50, weights=nu,
+                density=True, histtype='step', label='Reweighted data')
+        plt.hist(X_hww[:, i], bins=50,
+                density=True, histtype='step', label='Pure HWW')
+        plt.hist(X_val_data[:, i], bins=50,
+                density=True, histtype='step', label='Data')
+        plt.xlabel(feature_name)
+        plt.ylabel('Density')
+        plt.title(f'Closure test: {feature_name}')
+        plt.legend()
+        plt.savefig(f'Closure_tests/closure_{feature_name}.png')
+        plt.close()
 
     torch.save(model.state_dict(), 'model_1.pth')
     print("Model saved.", flush=True)

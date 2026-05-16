@@ -58,12 +58,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, n
     """
 
     from tqdm import tqdm
-    from sklearn.metrics import roc_auc_score, roc_curve
 
     train_losses    = []
     val_losses      = []
-    val_aucs        = []
-    roc_data        = None
 
     for epoch in range(num_epochs):
 
@@ -72,11 +69,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, n
         running_loss = 0.0
         progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', unit='batch')
 
-        for inputs, labels in progress_bar:
-            inputs, labels = inputs.to(device), labels.to(device)
+        for inputs, labels, weights in progress_bar:
+            inputs, labels, weights = inputs.to(device), labels.to(device), weights.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
-            loss = criterion(outputs.squeeze(), labels.float())
+
+            # Compute per-sample loss and weight it, then average over the batch
+            per_sample = criterion(outputs.squeeze(), labels.float()) * weights
+            loss = per_sample.sum() / weights.abs().sum()
+
             loss.backward()
             optimizer.step()
             running_loss += loss.item() * inputs.size(0)
@@ -88,34 +89,27 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, n
         # Validation
         model.eval()
         val_running_loss = 0.0
-        all_probs  = []
-        all_labels = []
 
         with torch.no_grad():
-            for inputs, labels in val_loader:
-                inputs, labels = inputs.to(device), labels.to(device)
+            for inputs, labels, weights in val_loader:
+                inputs, labels, weights = inputs.to(device), labels.to(device), weights.to(device)
                 outputs = model(inputs)
-                loss = criterion(outputs.squeeze(), labels.float())
+
+                per_sample = criterion(outputs.squeeze(), labels.float()) * weights
+                loss = per_sample.sum() / weights.abs().sum()
+
                 val_running_loss += loss.item() * inputs.size(0)
 
-                all_probs.extend(outputs.cpu().numpy())
-                all_labels.extend(labels.cpu().numpy())
 
         epoch_val_loss = val_running_loss / len(val_loader.dataset)
         val_losses.append(epoch_val_loss)
 
-        auc = roc_auc_score(all_labels, all_probs)
-        val_aucs.append(auc)
-        fpr, tpr, thresholds = roc_curve(all_labels, all_probs)
-
-        roc_data = (fpr, tpr, thresholds)
 
         print(f'Epoch {epoch+1}/{num_epochs} — '
               f'Train Loss: {epoch_train_loss:.4f}, '
-              f'Val Loss: {epoch_val_loss:.4f}, '
-              f'Val AUC: {auc:.4f}', flush=True)
+              f'Val Loss: {epoch_val_loss:.4f}')
 
-    return train_losses, val_losses, val_aucs, roc_data
+    return train_losses, val_losses
 
 
 class Red_Sea3(nn.Module):
@@ -139,7 +133,6 @@ class Red_Sea3(nn.Module):
             nn.GELU(),
             nn.Dropout(0.3),
             nn.Linear(64, 1),
-            nn.Sigmoid(),
         )
 
     def forward(self, x):
