@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 
 def main():
 
-    epochs = 4
+    epochs = 5
     lr = 0.0001
-    batch_size = 512
+    batch_size = 256
 
     # Load data from .npy files
     HWW_Data = np.load("Data/reco-gen_hww_rec.npy")
@@ -49,7 +49,7 @@ def main():
     Y = np.concatenate([Y_label1, Y_label0], axis=0)
 
     # Target ratio
-    ratio = {'hww': 1, 'ttbar': 7, 'wwjj': 2}
+    ratio = {'hww': 4, 'ttbar': 1, 'wwjj': 1}
 
     # positive weights for data
     w_hww   = ratio['hww']   / len(X_hww)
@@ -123,6 +123,7 @@ def main():
     X_val_unscaled = scaler.inverse_transform(X_val)
     X_val_data = X_val_unscaled[(Y_val == 1) & (W_val > 0)]  # Original features for data samples
     X_val_data_scaled = X_val[(Y_val == 1) & (W_val > 0)]   # Scaled features for data samples
+    W_val_data = W_val[(Y_val == 1) & (W_val > 0)]       # Weights for data samples
 
     with torch.no_grad():
         X_tensor = torch.tensor(X_val_data_scaled, dtype=torch.float32).to(device)
@@ -136,11 +137,11 @@ def main():
                                         'jet1_pt', 'jet1_mass', 'jet1_eta', 'jet1_phi',
                                         'jet2_pt', 'jet2_mass', 'jet2_eta', 'jet2_phi']):
         plt.figure()
-        plt.hist(X_val_data[:, i], bins=50, weights=nu,
+        plt.hist(X_val_data[:, i], bins=50, weights=nu + W_val_data,
                 density=True, histtype='step', label='Reweighted data')
         plt.hist(X_hww[:, i], bins=50,
                 density=True, histtype='step', label='Pure HWW')
-        plt.hist(X_val_data[:, i], bins=50,
+        plt.hist(X_val_data[:, i], bins=50, weights=W_val_data,
                 density=True, histtype='step', label='Data')
         plt.xlabel(feature_name)
         plt.ylabel('Density')
