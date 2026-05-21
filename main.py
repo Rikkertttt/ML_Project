@@ -137,7 +137,7 @@ def main():
                                         'jet1_pt', 'jet1_mass', 'jet1_eta', 'jet1_phi',
                                         'jet2_pt', 'jet2_mass', 'jet2_eta', 'jet2_phi']):
         plt.figure()
-        plt.hist(X_val_data[:, i], bins=50, weights=nu + W_val_data,
+        plt.hist(X_val_data[:, i], bins=50, weights=nu * W_val_data,
                 density=True, histtype='step', label='Reweighted data')
         plt.hist(X_hww[:, i], bins=50,
                 density=True, histtype='step', label='Pure HWW')

@@ -107,7 +107,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, n
 
         print(f'Epoch {epoch+1}/{num_epochs} — '
               f'Train Loss: {epoch_train_loss:.4f}, '
-              f'Val Loss: {epoch_val_loss:.4f}')
+              f'Val Loss: {epoch_val_loss:.4f}', flush=True)
 
     return train_losses, val_losses
 
