@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 def main():
 
-    epochs = 5
+    epochs = 10
     lr = 0.0001
     batch_size = 256
 
