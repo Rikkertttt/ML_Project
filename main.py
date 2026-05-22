@@ -49,7 +49,7 @@ def main():
     Y = np.concatenate([Y_label1, Y_label0], axis=0)
 
     # Target ratio
-    ratio = {'hww': 4, 'ttbar': 1, 'wwjj': 1}
+    ratio = {'hww': 0.144, 'ttbar': 0.536, 'wwjj': 0.319}
 
     # positive weights for data
     w_hww   = ratio['hww']   / len(X_hww)
