@@ -1,4 +1,4 @@
-from functions import load_data_to_4mom, Red_Sea3, train_model, build_features
+from functions import load_data_to_4mom, Red_Sea3, train_model_2ndmeth, build_features
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -102,7 +102,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     
-    train_losses, val_losses = train_model(
+    train_losses, val_losses = train_model_2ndmeth(
     model, train_loader, val_loader, criterion, optimizer, device, num_epochs=epochs
     )
 
