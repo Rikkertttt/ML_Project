@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 def main():
 
-    epochs = 50
+    epochs = 30
     lr = 0.001
     batch_size = 256
 
@@ -34,8 +34,16 @@ def main():
     X = np.concatenate([X_hww, X_ttbar, X_wwjj], axis=0)
     Y = np.concatenate([np.ones(len(X_hww)), np.zeros(len(X_ttbar)), np.zeros(len(X_wwjj))], axis=0)
 
+    # Define sampling weights
+    ratio = {'hww': 0.144, 'ttbar': 0.536, 'wwjj': 0.319}
+    W = np.concatenate([
+        np.full(len(X_hww),   ratio['hww']   / len(X_hww)),
+        np.full(len(X_ttbar), ratio['ttbar'] / len(X_ttbar)),
+        np.full(len(X_wwjj),  ratio['wwjj']  / len(X_wwjj)),
+    ])
+
     # Split into training and validation sets
-    X_train, X_val, Y_train, Y_val = train_test_split(X, Y, test_size=0.2, random_state=42)
+    X_train, X_val, Y_train, Y_val, W_train, W_val = train_test_split(X, Y, W, test_size=0.2, random_state=42)
 
     # Scale features
     scaler = StandardScaler()
@@ -114,12 +122,13 @@ def main():
                                         'jet1_pt', 'jet1_mass', 'jet1_eta', 'jet1_phi',
                                         'jet2_pt', 'jet2_mass', 'jet2_eta', 'jet2_phi']):
         plt.figure()
-        plt.hist(X_val_unscaled[:, i], bins=50,
-                density=True, histtype='step', label='Validation data')
-        plt.hist(X_val_unscaled[:, i][y_pred == 1], bins=50,
-                density=True, histtype='step', label='Cut validation data')
+        plt.hist(X_val_unscaled[:, i][y_pred == 1], bins=50, 
+            weights=W_val[y_pred == 1], density=True, histtype='step', 
+            label='Cut validation data')
         plt.hist(X_hww[:, i], bins=50,
                 density=True, histtype='step', label='Pure HWW')
+        plt.hist(X_val_unscaled[:, i], bins=50, weights=W_val,
+                density=True, histtype='step', label='Validation data')
         plt.xlabel(feature_name)
         plt.ylabel('Density')
         plt.title(f'Closure test: {feature_name}')
